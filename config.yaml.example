@@ -1,0 +1,21 @@
+app:
+  port: 8080
+db:
+redis:
+  addr: "localhost:6379"
+log:
+  level: "debug"
+  path: "./logs/app.log"
+  max_size: 100
+  max_backups: 3
+  max_age: 30
+  compress: true
+  request_log_detail: true
+llm:
+  base_url: "https://api.deepseek.com/chat/completions"
+  model: "deepseek-chat"
+  temperature: 0.2
+  max_tokens: 800
+  timeout_seconds: 30
+jwt:
+  expire_hours: 72
