@@ -21,20 +21,24 @@ func JWTAuth(rdb *redis.Client) gin.HandlerFunc {
 		// c.Set("user_id", claims.UserID)
 		// c.Set("role", claims.Role)
 		// c.Next()
-		// 1. 从请求头获取 Token（格式：Bearer {token}）
+		// 1. 从请求头获取 Token（格式：Bearer {token}），无则回退 Cookie
 		authHeader := c.Request.Header.Get("Authorization")
-		if authHeader == "" {
-			response.Fail(c, constants.ErrTokenMissing)
-			return
+		var tokenStr string
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				response.Fail(c, constants.ErrTokenInvalid)
+				return
+			}
+			tokenStr = parts[1]
+		} else {
+			cookieToken, err := c.Cookie("token")
+			if err != nil || cookieToken == "" {
+				response.Fail(c, constants.ErrTokenMissing)
+				return
+			}
+			tokenStr = cookieToken
 		}
-
-		// 2. 解析 Bearer Token
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			response.Fail(c, constants.ErrTokenInvalid)
-			return
-		}
-		tokenStr := parts[1]
 
 		// 3. 解析 Token（验证签名 + 过期时间）
 		claims, err := auth.ParseToken(tokenStr)

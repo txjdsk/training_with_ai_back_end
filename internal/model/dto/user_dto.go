@@ -39,8 +39,10 @@ type UpdateProfileReq struct {
 // AdminUserFilterReq 管理员筛选用户请求参数
 type AdminUserFilterReq struct {
 	PageReq
-	Username string `form:"username"` // 模糊搜索
-	Role     string `form:"role"`     // 角色筛选
+	Username  string `form:"username"`   // 模糊搜索
+	Role      string `form:"role"`       // 角色筛选
+	StartTime string `form:"start_time"` // 创建时间起始 (RFC3339)
+	EndTime   string `form:"end_time"`   // 创建时间结束 (RFC3339)
 }
 
 // AdminCreateUserReq 管理员新增用户

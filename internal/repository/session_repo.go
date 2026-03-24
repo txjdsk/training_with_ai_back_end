@@ -22,7 +22,7 @@ type SessionRepository interface {
 	// PostgreSQL 相关方法
 	CreateRecord(ctx context.Context, record *entity.TrainingRecord) error
 	GetRecordByID(ctx context.Context, id int64) (*entity.TrainingRecord, error)
-	ListRecords(ctx context.Context, userID *int64, filterUsername string, minScore *float64, maxScore *float64, promptID *uint64, page int, size int) ([]entity.TrainingRecord, int64, error)
+	ListRecords(ctx context.Context, userID *int64, filterUsername string, minScore *float64, maxScore *float64, promptID *uint64, startTime *time.Time, endTime *time.Time, page int, size int) ([]entity.TrainingRecord, int64, error)
 	DeleteRecord(ctx context.Context, id int64) error
 }
 
@@ -41,7 +41,6 @@ func NewSessionRepository(db *gorm.DB, rdb *redis.Client) SessionRepository {
 }
 
 // ---------------- 以下为接口方法的具体实现示例 ----------------
-// TODO: 这里的实现只是示例，实际项目中可能需要更复杂的逻辑和错误处理
 func (r *sessionRepository) SetSessionCache(ctx context.Context, sessionID string, data []byte, ttl time.Duration) error {
 	return r.rdb.Set(ctx, "session:"+sessionID, data, ttl).Err()
 }
@@ -70,13 +69,13 @@ func (r *sessionRepository) GetRecordByID(ctx context.Context, id int64) (*entit
 	return &record, nil
 }
 
-func (r *sessionRepository) ListRecords(ctx context.Context, userID *int64, filterUsername string, minScore *float64, maxScore *float64, promptID *uint64, page int, size int) ([]entity.TrainingRecord, int64, error) {
+func (r *sessionRepository) ListRecords(ctx context.Context, userID *int64, filterUsername string, minScore *float64, maxScore *float64, promptID *uint64, startTime *time.Time, endTime *time.Time, page int, size int) ([]entity.TrainingRecord, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.TrainingRecord{}).Preload("User")
 	if userID != nil {
 		query = query.Where("user_id = ?", *userID)
 	}
 	if filterUsername != "" {
-		query = query.Joins("User").Where("users.username ILIKE ?", "%"+filterUsername+"%")
+		query = query.Joins("User").Where("\"User\".username ILIKE ?", "%"+filterUsername+"%")
 	}
 	if minScore != nil {
 		query = query.Where("score >= ?", *minScore)
@@ -86,6 +85,12 @@ func (r *sessionRepository) ListRecords(ctx context.Context, userID *int64, filt
 	}
 	if promptID != nil {
 		query = query.Where("used_prompt_ids @> ?", "["+fmt.Sprint(*promptID)+"]")
+	}
+	if startTime != nil {
+		query = query.Where("finished_at >= ?", *startTime)
+	}
+	if endTime != nil {
+		query = query.Where("finished_at <= ?", *endTime)
 	}
 
 	var total int64

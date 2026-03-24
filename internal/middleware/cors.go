@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strconv"
 	"strings"
 
 	"training_with_ai/internal/pkg/logger"
@@ -49,11 +50,22 @@ func CORSMiddleware(config ...CORSConfig) gin.HandlerFunc {
 			"path", c.Request.URL.Path,
 		)
 
-		// 3. 处理允许的源：如果配置了 "*" 则直接用，否则匹配请求的 Origin
+		// 3. 处理允许的源：配置 "*" 时优先回显 Origin（避免带凭证时浏览器拦截）
 		allowOrigin := ""
 		if len(cfg.AllowOrigins) > 0 {
-			if cfg.AllowOrigins[0] == "*" {
-				allowOrigin = "*"
+			allowAll := false
+			for _, o := range cfg.AllowOrigins {
+				if o == "*" {
+					allowAll = true
+					break
+				}
+			}
+			if allowAll {
+				if cfg.AllowCredentials && origin != "" {
+					allowOrigin = origin
+				} else {
+					allowOrigin = "*"
+				}
 			} else {
 				// 生产环境：匹配请求的 Origin 是否在允许列表中
 				for _, o := range cfg.AllowOrigins {
@@ -79,7 +91,7 @@ func CORSMiddleware(config ...CORSConfig) gin.HandlerFunc {
 		}
 		// 预检请求缓存时间
 		if cfg.MaxAge > 0 {
-			c.Header("Access-Control-Max-Age", string(rune(cfg.MaxAge)))
+			c.Header("Access-Control-Max-Age", strconv.Itoa(cfg.MaxAge))
 		}
 		// 暴露的响应头（前端可通过 JS 获取）
 		if len(cfg.ExposeHeaders) > 0 {

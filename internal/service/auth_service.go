@@ -16,7 +16,7 @@ import (
 type AuthService interface {
 	Login(ctx context.Context, req dto.AuthLoginReq) (int, string, error)
 	Register(ctx context.Context, req dto.AuthRegisterReq) error
-	Logout(ctx context.Context, userID int64, jti string) error
+	Logout(ctx context.Context, jti string) error
 }
 
 type authService struct {
@@ -34,7 +34,7 @@ func (s *authService) Login(ctx context.Context, req dto.AuthLoginReq) (int, str
 	userEntity, err := s.repo.GetUserByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, "", constants.ErrUserNotFound
+			return 0, "", constants.ErrPasswordInvalid
 		}
 		return 0, "", err
 	}
@@ -56,7 +56,7 @@ func (s *authService) Login(ctx context.Context, req dto.AuthLoginReq) (int, str
 	}
 
 	if req.RememberMe == false {
-		return -1, token, nil
+		return 0, token, nil
 	}
 	cfg, err := config.LoadConfig()
 	return cfg.JWT.ExpireHours, token, nil
@@ -93,8 +93,12 @@ func (s *authService) Register(ctx context.Context, req dto.AuthRegisterReq) err
 	return nil
 }
 
-func (s *authService) Logout(ctx context.Context, userID int64, jti string) error {
-	err := s.repo.Logout(ctx, userID, jti)
+func (s *authService) Logout(ctx context.Context, jti string) error {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return err
+	}
+	err = s.repo.Logout(ctx, jti, cfg.JWT.ExpireHours)
 	if err != nil {
 		return err
 	}

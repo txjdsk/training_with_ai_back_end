@@ -50,14 +50,24 @@ func (s *promptTypeService) Create(ctx context.Context, req dto.PromptCategoryRe
 	if name == "" {
 		return nil, constants.ErrParamInvalid
 	}
+	if req.ID > 0 && req.ID < 7 {
+		return nil, constants.ErrParamInvalid
+	}
 
 	if _, err := s.repo.GetByName(ctx, name); err == nil {
 		return nil, constants.ErrPromptTypeExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
+	if req.ID > 0 {
+		if _, err := s.repo.GetByID(ctx, req.ID); err == nil {
+			return nil, constants.ErrPromptTypeExists
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, err
+		}
+	}
 
-	category := &entity.PromptCategory{Name: name}
+	category := &entity.PromptCategory{ID: req.ID, Name: name}
 	if err := s.repo.Create(ctx, category); err != nil {
 		return nil, err
 	}
@@ -69,6 +79,9 @@ func (s *promptTypeService) Update(ctx context.Context, id uint, req dto.PromptC
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, constants.ErrParamInvalid
+	}
+	if id <= 2 || id == 6 {
+		return nil, constants.ErrNoPermission
 	}
 
 	category, err := s.repo.GetByID(ctx, id)
@@ -96,6 +109,9 @@ func (s *promptTypeService) Update(ctx context.Context, id uint, req dto.PromptC
 }
 
 func (s *promptTypeService) Delete(ctx context.Context, id uint) error {
+	if id <= 2 || id == 6 {
+		return constants.ErrNoPermission
+	}
 	if _, err := s.repo.GetByID(ctx, id); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return constants.ErrPromptTypeNotFound

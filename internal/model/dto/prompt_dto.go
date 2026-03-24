@@ -4,6 +4,7 @@ import "time"
 
 // ================= 分类 DTO =================
 type PromptCategoryReq struct {
+	ID   uint   `json:"id"`
 	Name string `json:"name" binding:"required,max=100"`
 }
 
@@ -12,7 +13,7 @@ type PromptCategoryResp struct {
 	Name string `json:"name"`
 }
 
-//================== 提示词列表 DTO =================
+// ================== 提示词列表 DTO =================
 // PromptListItem 提示词列表项（前端展示的字段）
 type PromptListItem struct {
 	ID   uint64 `json:"id"`   // 提示词ID
@@ -28,7 +29,7 @@ type PromptListResp struct {
 }
 
 type PromptListReq struct {
-	Type   uint   `form:"type" json:"type"`     // 提示词类型（URL查询参数）
+	Type   *uint  `form:"type" json:"type"`     // 提示词类型（URL查询参数）
 	Search string `form:"search" json:"search"` // 搜索关键词（URL查询参数）
 }
 
@@ -36,7 +37,7 @@ type PromptListReq struct {
 
 // PromptReq 新增/修改提示词请求
 type PromptReq struct {
-	CategoryID uint   `json:"category_id" binding:"required"`
+	CategoryID uint   `json:"category_id" binding:"gte=0"`
 	Content    string `json:"content" binding:"required"`
 	Note       string `json:"note" binding:"omitempty"`
 }

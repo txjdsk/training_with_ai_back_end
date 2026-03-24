@@ -24,6 +24,7 @@ type SessionCache struct {
 	SessionID     string          `json:"session_id"`
 	UserID        uint64          `json:"user_id"`
 	UsedPromptIDs []uint64        `json:"used_prompt_ids"`
+	PromptText    string          `json:"prompt_text"`
 	Difficulty    string          `json:"difficulty"`
 	Status        string          `json:"status"`
 	CurrentAnger  int             `json:"current_anger"`
@@ -53,11 +54,13 @@ type ChatMessageReq struct {
 
 // AdminRecordFilterReq 管理员筛选训练历史记录的请求参数
 type AdminRecordFilterReq struct {
-	PageReq           // 继承通用分页 (Page, Size)
-	Username string   `form:"username" binding:"omitempty"`  // 按用户名模糊搜索
-	MinScore *float64 `form:"min_score" binding:"omitempty"` // 最低分边界 (用指针区分0和未传)
-	MaxScore *float64 `form:"max_score" binding:"omitempty"` // 最高分边界
-	PromptID uint64   `form:"prompt_id" binding:"omitempty"` // 按特定提示词查询
+	PageReq            // 继承通用分页 (Page, Size)
+	Username  string   `form:"username" binding:"omitempty"`   // 按用户名模糊搜索
+	MinScore  *float64 `form:"min_score" binding:"omitempty"`  // 最低分边界 (用指针区分0和未传)
+	MaxScore  *float64 `form:"max_score" binding:"omitempty"`  // 最高分边界
+	PromptID  uint64   `form:"prompt_id" binding:"omitempty"`  // 按特定提示词查询
+	StartTime string   `form:"start_time" binding:"omitempty"` // 完成时间起始 (RFC3339)
+	EndTime   string   `form:"end_time" binding:"omitempty"`   // 完成时间结束 (RFC3339)
 }
 
 // ============================================================================
@@ -76,6 +79,15 @@ type ChatResponse struct {
 	CurrentAnger int           `json:"current_anger"`
 	MaxAnger     int           `json:"max_anger"`
 	TurnCount    int           `json:"turn_count"`
+}
+
+// SessionSSEEvent SSE实时推送载荷：仅返回A模型回复与最新怒气状态
+type SessionSSEEvent struct {
+	CustomerMsg  string `json:"customer_msg"`
+	CurrentAnger int    `json:"current_anger"`
+	MaxAnger     int    `json:"max_anger"`
+	TurnCount    int    `json:"turn_count"`
+	Status       string `json:"status"`
 }
 
 // EvaluateResp 训练结束后的结算/打分响应

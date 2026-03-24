@@ -69,6 +69,12 @@ func main() {
 
 	// 启动服务器
 	log.Printf("server is running at port%s", cfg.App.Port)
+	if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
+		if err := r.RunTLS(":"+cfg.App.Port, cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil {
+			log.Fatalf("Failed to run TLS server: %v", err)
+		}
+		return
+	}
 	if err := r.Run(":" + cfg.App.Port); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}

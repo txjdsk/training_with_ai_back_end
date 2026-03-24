@@ -79,12 +79,14 @@ func (s *promptService) GetPromptDetail(ctx context.Context, id int64, isAdmin b
 }
 
 func (s *promptService) CreatePrompt(ctx context.Context, req dto.PromptReq) (*dto.AdminPromptResp, error) {
-	categoryExists, err := s.repo.CheckCategoryExists(ctx, req.CategoryID)
-	if err != nil {
-		return nil, err
-	}
-	if !categoryExists {
-		return nil, constants.ErrPromptTypeNotFound
+	if req.CategoryID > 2 {
+		categoryExists, err := s.repo.CheckCategoryExists(ctx, req.CategoryID)
+		if err != nil {
+			return nil, err
+		}
+		if !categoryExists {
+			return nil, constants.ErrPromptTypeNotFound
+		}
 	}
 
 	prompt := &entity.Prompt{
@@ -106,12 +108,14 @@ func (s *promptService) CreatePrompt(ctx context.Context, req dto.PromptReq) (*d
 }
 
 func (s *promptService) UpdatePrompt(ctx context.Context, id int64, req dto.PromptReq) (*dto.AdminPromptResp, error) {
-	categoryExists, err := s.repo.CheckCategoryExists(ctx, req.CategoryID)
-	if err != nil {
-		return nil, err
-	}
-	if !categoryExists {
-		return nil, constants.ErrPromptTypeNotFound
+	if req.CategoryID > 2 {
+		categoryExists, err := s.repo.CheckCategoryExists(ctx, req.CategoryID)
+		if err != nil {
+			return nil, err
+		}
+		if !categoryExists {
+			return nil, constants.ErrPromptTypeNotFound
+		}
 	}
 
 	prompt, err := s.repo.GetPromptByID(ctx, id)

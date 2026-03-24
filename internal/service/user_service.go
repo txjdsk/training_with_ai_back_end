@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 	"training_with_ai/internal/model/dto"
 	"training_with_ai/internal/model/entity"
 	"training_with_ai/internal/pkg/auth"
@@ -94,8 +95,24 @@ func (s *userService) UpdateProfile(ctx context.Context, userID int64, req dto.U
 }
 
 func (s *userService) AdminList(ctx context.Context, req dto.AdminUserFilterReq) (*dto.PageResp, error) {
-	//TODO: 可以考虑增加更多过滤条件，比如创建时间范围等
-	users, total, err := s.repo.List(ctx, req.Username, req.Role, req.Page, req.Size)
+	var startTime *time.Time
+	if strings.TrimSpace(req.StartTime) != "" {
+		parsed, err := time.Parse(time.RFC3339, req.StartTime)
+		if err != nil {
+			return nil, constants.ErrParamInvalid
+		}
+		startTime = &parsed
+	}
+	var endTime *time.Time
+	if strings.TrimSpace(req.EndTime) != "" {
+		parsed, err := time.Parse(time.RFC3339, req.EndTime)
+		if err != nil {
+			return nil, constants.ErrParamInvalid
+		}
+		endTime = &parsed
+	}
+
+	users, total, err := s.repo.List(ctx, req.Username, req.Role, startTime, endTime, req.Page, req.Size)
 	if err != nil {
 		return nil, err
 	}

@@ -29,7 +29,7 @@ func VerifyPassword(plainPassword, hashPassword string) (bool, error) {
 	if err != nil {
 		// 区分「密码不匹配」和「其他错误」（比如哈希值格式错误）
 		if err == bcrypt.ErrMismatchedHashAndPassword {
-			return false, errors.New("密码错误")
+			return false, nil
 		}
 		return false, errors.New("密码校验失败：" + err.Error())
 	}

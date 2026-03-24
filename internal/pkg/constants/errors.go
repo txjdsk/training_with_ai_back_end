@@ -27,8 +27,11 @@ var (
 	ErrPromptTypeInUse    = &AppError{HTTPCode: 400, BizCode: 40004, Message: "prompt category is in use"}
 	ErrSessionNotFound    = &AppError{HTTPCode: 404, BizCode: 40410, Message: "session not found"}
 	ErrPromptSelectionBad = &AppError{HTTPCode: 400, BizCode: 40010, Message: "invalid prompt selection"}
+	ErrSessionNotOngoing  = &AppError{HTTPCode: 400, BizCode: 40011, Message: "session is not ongoing"}
+	ErrRateLimited        = &AppError{HTTPCode: 429, BizCode: 42901, Message: "rate limit exceeded"}
 	ErrLLMConfigMissing   = &AppError{HTTPCode: 500, BizCode: 50010, Message: "llm config missing"}
 	ErrLLMRequestFailed   = &AppError{HTTPCode: 502, BizCode: 50201, Message: "llm request failed"}
+	ErrVectorSearchFailed = &AppError{HTTPCode: 502, BizCode: 50202, Message: "vector search failed"}
 	ErrTokenInvalid       = &AppError{HTTPCode: 401, BizCode: 40101, Message: "invalid or expired token"}
 	ErrTokenMissing       = &AppError{HTTPCode: 401, BizCode: 40102, Message: "token is required"}
 	ErrTokenBlacklisted   = &AppError{HTTPCode: 401, BizCode: 40104, Message: "token has been blacklisted"}

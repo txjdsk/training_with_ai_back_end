@@ -39,6 +39,11 @@ func (c *AuthController) Login(ctx *gin.Context) {
 		response.Fail(ctx, err)
 		return
 	}
+	if cookieMaxAge > 0 {
+		cookieMaxAge = cookieMaxAge * 3600
+	} else if cookieMaxAge < 0 {
+		cookieMaxAge = 0
+	}
 
 	ctx.SetCookie(
 		"token",
@@ -72,12 +77,6 @@ func (c *AuthController) Register(ctx *gin.Context) {
 }
 
 func (c *AuthController) Logout(ctx *gin.Context) {
-	// 1. 从上下文获取用户ID（JWT中间件已解析并存储）
-	userID, exists := ctx.Get("userID")
-	if !exists {
-		response.Fail(ctx, constants.ErrUserNotFound)
-		return
-	}
 	jti, exists := ctx.Get("jti")
 	if !exists {
 		response.Fail(ctx, constants.ErrTokenInvalid)
@@ -86,7 +85,7 @@ func (c *AuthController) Logout(ctx *gin.Context) {
 
 	// 2. 调用 Service 进行登出逻辑处理
 	//TODO:完善登出逻辑，例如：清除 Redis 中的 Token，或在数据库中记录用户登出时间等
-	err := c.svc.Logout(ctx.Request.Context(), userID.(int64), jti.(string))
+	err := c.svc.Logout(ctx.Request.Context(), jti.(string))
 	if err != nil {
 		response.Fail(ctx, err)
 		return

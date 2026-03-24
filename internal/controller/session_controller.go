@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strconv"
@@ -70,12 +71,17 @@ func (c *SessionController) Stream(ctx *gin.Context) {
 	ctx.Writer.Flush()
 
 	ctx.Stream(func(w io.Writer) bool {
-		msg, ok := <-ch
-		if !ok {
+		select {
+		case <-ctx.Request.Context().Done():
+			c.svc.HandleStreamDisconnect(context.Background(), sessionID)
 			return false
+		case payload, ok := <-ch:
+			if !ok {
+				return false
+			}
+			ctx.SSEvent("message", payload)
+			return true
 		}
-		ctx.SSEvent("message", msg)
-		return true
 	})
 }
 

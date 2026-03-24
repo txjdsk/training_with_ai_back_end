@@ -7,17 +7,24 @@ import (
 )
 
 type Config struct {
-	App   AppConfig   `mapstructure:"app"`
-	DB    DBConfig    `mapstructure:"db"`
-	Redis RedisConfig `mapstructure:"redis"`
-	Log   LogConfig   `mapstructure:"log"`
-	LLM   LLMConfig   `mapstructure:"llm"`
-	JWT   JWTConfig   // JWT 敏感配置仅从.env/环境变量取，不解析YAML
+	App    AppConfig    `mapstructure:"app"`
+	TLS    TLSConfig    `mapstructure:"tls"`
+	DB     DBConfig     `mapstructure:"db"`
+	Redis  RedisConfig  `mapstructure:"redis"`
+	Log    LogConfig    `mapstructure:"log"`
+	LLM    LLMConfig    `mapstructure:"llm"`
+	Chroma ChromaConfig `mapstructure:"chroma"`
+	JWT    JWTConfig    // JWT 敏感配置仅从.env/环境变量取，不解析YAML
 }
 
 type AppConfig struct {
 	Port string `mapstructure:"port"` // YAML: app.port
 	Env  string `mapstructure:"env"`  // YAML: app.env（dev/prod）
+}
+
+type TLSConfig struct {
+	CertFile string `mapstructure:"cert_file"`
+	KeyFile  string `mapstructure:"key_file"`
 }
 
 type DBConfig struct {
@@ -48,9 +55,21 @@ type JWTConfig struct {
 type LLMConfig struct {
 	BaseURL        string  `mapstructure:"base_url"`
 	Model          string  `mapstructure:"model"`
+	RewriteModel   string  `mapstructure:"rewrite_model"`
+	CritiqueModel  string  `mapstructure:"critique_model"`
+	CustomerModel  string  `mapstructure:"customer_model"`
+	EmbeddingModel string  `mapstructure:"embedding_model"`
 	Temperature    float64 `mapstructure:"temperature"`
 	MaxTokens      int     `mapstructure:"max_tokens"`
 	TimeoutSeconds int     `mapstructure:"timeout_seconds"`
+	APIKey         string
+}
+
+type ChromaConfig struct {
+	BaseURL        string `mapstructure:"base_url"`
+	Collection     string `mapstructure:"collection"`
+	TopK           int    `mapstructure:"top_k"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
 	APIKey         string
 }
 
@@ -98,6 +117,8 @@ func LoadConfig() (*Config, error) {
 	if cfg.LLM.APIKey == "" {
 		return nil, errors.New("LLM_API_KEY is required")
 	}
+
+	cfg.Chroma.APIKey = viper.GetString("CHROMA_API_KEY")
 
 	cfg.JWT.ExpireHours = yamlViper.GetInt("jwt.expire_hours")
 	if cfg.JWT.ExpireHours == 0 {

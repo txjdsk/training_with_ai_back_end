@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 	"training_with_ai/internal/model/entity"
 
 	"github.com/redis/go-redis/v9"
@@ -17,7 +18,7 @@ type UserRepository interface {
 	Create(ctx context.Context, user *entity.User) error
 	Update(ctx context.Context, user *entity.User) error
 	Delete(ctx context.Context, id int64) error
-	List(ctx context.Context, username string, role string, page int, size int) ([]entity.User, int64, error)
+	List(ctx context.Context, username string, role string, startTime *time.Time, endTime *time.Time, page int, size int) ([]entity.User, int64, error)
 }
 
 // 2. 定义私有结构体实现接口
@@ -90,13 +91,19 @@ func (r *userRepository) Delete(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Delete(&entity.User{}, id).Error
 }
 
-func (r *userRepository) List(ctx context.Context, username string, role string, page int, size int) ([]entity.User, int64, error) {
+func (r *userRepository) List(ctx context.Context, username string, role string, startTime *time.Time, endTime *time.Time, page int, size int) ([]entity.User, int64, error) {
 	query := r.db.WithContext(ctx).Model(&entity.User{})
 	if username != "" {
 		query = query.Where("username ILIKE ?", "%"+username+"%")
 	}
 	if role != "" {
 		query = query.Where("role = ?", role)
+	}
+	if startTime != nil {
+		query = query.Where("created_at >= ?", *startTime)
+	}
+	if endTime != nil {
+		query = query.Where("created_at <= ?", *endTime)
 	}
 
 	var total int64

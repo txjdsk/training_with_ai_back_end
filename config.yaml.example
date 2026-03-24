@@ -1,5 +1,8 @@
 app:
   port: 8080
+tls:
+  cert_file: "your_cert_file"
+  key_file: "your_key_file"
 db:
 redis:
   addr: "localhost:6379"
@@ -12,10 +15,19 @@ log:
   compress: true
   request_log_detail: true
 llm:
-  base_url: "https://api.deepseek.com/chat/completions"
+  base_url: "https://api.siliconflow.cn/"
   model: "deepseek-chat"
+  rewrite_model: "deepseek-chat"
+  critique_model: "deepseek-chat"
+  customer_model: "deepseek-chat"
+  embedding_model: "your_embedding_model"
   temperature: 0.2
   max_tokens: 800
   timeout_seconds: 30
+chroma:
+  base_url: "your_local_chroma"
+  collection: "training_with_ai_kb"
+  top_k: 3
+  timeout_seconds: 10
 jwt:
   expire_hours: 72

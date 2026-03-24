@@ -10,7 +10,7 @@ import (
 
 // 1. 定义接口
 type PromptRepository interface {
-	GetPromptList(ctx context.Context, promptType uint, search string) ([]entity.Prompt, error)
+	GetPromptList(ctx context.Context, promptType *uint, search string) ([]entity.Prompt, error)
 	GetPromptByID(ctx context.Context, id int64) (*entity.Prompt, error)
 	GetPromptsByIDs(ctx context.Context, ids []uint64) ([]entity.Prompt, error)
 	GetPromptsByCategory(ctx context.Context, categoryID uint) ([]entity.Prompt, error)
@@ -34,11 +34,11 @@ func NewPromptRepository(db *gorm.DB, rdb *redis.Client) PromptRepository {
 	}
 }
 
-func (r *promptRepository) GetPromptList(ctx context.Context, promptType uint, search string) ([]entity.Prompt, error) {
+func (r *promptRepository) GetPromptList(ctx context.Context, promptType *uint, search string) ([]entity.Prompt, error) {
 	// 1. 构建查询条件
 	query := r.db.WithContext(ctx).Model(&entity.Prompt{})
-	if promptType > 0 {
-		query = query.Where("category_id = ?", promptType)
+	if promptType != nil {
+		query = query.Where("category_id = ?", *promptType)
 	}
 	if search != "" {
 		likeSearch := "%" + search + "%"

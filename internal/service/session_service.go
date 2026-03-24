@@ -5,15 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"training_with_ai/internal/model/dto"
 	"training_with_ai/internal/model/entity"
 	"training_with_ai/internal/pkg/calc"
+	"training_with_ai/internal/pkg/chroma"
 	"training_with_ai/internal/pkg/constants"
+	"training_with_ai/internal/pkg/llm"
 	"training_with_ai/internal/pkg/logger"
 	"training_with_ai/internal/repository"
+
+	config "training_with_ai/configs"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -23,7 +28,8 @@ import (
 // 1. 定义接口
 type SessionService interface {
 	CreateSession(ctx context.Context, userID uint64, req *dto.CreateSessionReq) (*dto.CreateSessionResp, error)
-	OpenStream(ctx context.Context, sessionID string) (<-chan string, error)
+	OpenStream(ctx context.Context, sessionID string) (<-chan dto.SessionSSEEvent, error)
+	HandleStreamDisconnect(ctx context.Context, sessionID string)
 	SendMessage(ctx context.Context, sessionID string, msg string) (*dto.ChatResponse, error)
 	TerminateSession(ctx context.Context, sessionID string) error
 	GetRecordDetail(ctx context.Context, recordID int64, isAdmin bool) (interface{}, error)
@@ -38,10 +44,7 @@ type sessionService struct {
 	promptRepo repository.PromptRepository
 
 	streamMu sync.Mutex
-	streams  map[string]chan string
-
-	// 如果你封装了大模型调用的工具，也可以在这里注入，例如：
-	// llmClient pkg.LLMClient
+	streams  map[string]chan dto.SessionSSEEvent
 }
 
 // 3. 构造函数：注入 repo 接口，返回 service 接口
@@ -49,12 +52,11 @@ func NewSessionService(repo repository.SessionRepository, promptRepo repository.
 	return &sessionService{
 		repo:       repo,
 		promptRepo: promptRepo,
-		streams:    make(map[string]chan string),
+		streams:    make(map[string]chan dto.SessionSSEEvent),
 	}
 }
 
 // ---------------- 以下为接口方法的具体实现示例 ----------------
-// TODO: 这里的实现只是示例，实际项目中可能需要更复杂的逻辑和错误处理
 func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *dto.CreateSessionReq) (*dto.CreateSessionResp, error) {
 	selected, err := s.promptRepo.GetPromptsByIDs(ctx, req.PromptIDs)
 	if err != nil {
@@ -81,7 +83,7 @@ func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *
 		return nil, constants.ErrPromptSelectionBad
 	}
 
-	basePromptIDs := []uint64{}
+	basePrompts := make(map[uint]entity.Prompt)
 	for _, categoryID := range []uint{0, 1, 2} {
 		prompts, err := s.promptRepo.GetPromptsByCategory(ctx, categoryID)
 		if err != nil {
@@ -90,11 +92,22 @@ func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *
 		if len(prompts) != 1 {
 			return nil, constants.ErrPromptSelectionBad
 		}
-		basePromptIDs = append(basePromptIDs, uint64(prompts[0].ID))
+		basePrompts[categoryID] = prompts[0]
 	}
 
-	usedPromptIDs := append([]uint64{}, basePromptIDs...)
-	usedPromptIDs = append(usedPromptIDs, req.PromptIDs...)
+	rolePrompt, scenePrompt, err := splitRoleScenePrompt(selected)
+	if err != nil {
+		return nil, err
+	}
+
+	fullPrompt := buildFullPrompt(basePrompts, rolePrompt, scenePrompt)
+	usedPromptIDs := []uint64{
+		uint64(basePrompts[0].ID),
+		uint64(basePrompts[1].ID),
+		uint64(basePrompts[2].ID),
+		uint64(rolePrompt.ID),
+		uint64(scenePrompt.ID),
+	}
 
 	initAnger := initialAngerForDifficulty(req.Difficulty)
 	sessionID := uuid.NewString()
@@ -102,6 +115,7 @@ func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *
 		SessionID:     sessionID,
 		UserID:        userID,
 		UsedPromptIDs: usedPromptIDs,
+		PromptText:    fullPrompt,
 		Difficulty:    req.Difficulty,
 		Status:        "ongoing",
 		CurrentAnger:  initAnger,
@@ -123,7 +137,7 @@ func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *
 	return &dto.CreateSessionResp{SessionID: sessionID}, nil
 }
 
-func (s *sessionService) OpenStream(ctx context.Context, sessionID string) (<-chan string, error) {
+func (s *sessionService) OpenStream(ctx context.Context, sessionID string) (<-chan dto.SessionSSEEvent, error) {
 	if _, err := s.getSessionCache(ctx, sessionID); err != nil {
 		return nil, err
 	}
@@ -133,9 +147,25 @@ func (s *sessionService) OpenStream(ctx context.Context, sessionID string) (<-ch
 	if ch, ok := s.streams[sessionID]; ok {
 		return ch, nil
 	}
-	ch := make(chan string, 8)
+	ch := make(chan dto.SessionSSEEvent, 8)
 	s.streams[sessionID] = ch
 	return ch, nil
+}
+
+// HandleStreamDisconnect 仅在 SSE 异常断开时调用：标记异常并将 Redis TTL 缩短至 5 分钟
+func (s *sessionService) HandleStreamDisconnect(ctx context.Context, sessionID string) {
+	cache, err := s.getSessionCache(ctx, sessionID)
+	if err == nil {
+		if cache.Status == "ongoing" {
+			cache.Status = "abnormal"
+			cache.LastActiveAt = time.Now().UTC()
+			if data, marshalErr := json.Marshal(cache); marshalErr == nil {
+				_ = s.repo.SetSessionCache(ctx, sessionID, data, 5*time.Minute)
+			}
+		}
+	}
+
+	s.closeStream(sessionID)
 }
 
 func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg string) (*dto.ChatResponse, error) {
@@ -144,9 +174,51 @@ func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg 
 	if err != nil {
 		return nil, err
 	}
+	if cache.Status != "ongoing" {
+		return nil, constants.ErrSessionNotOngoing
+	}
+
+	client, err := s.getLLMClient()
+	if err != nil {
+		return nil, err
+	}
+
+	history := buildDialogueHistory(cache.DialogueLog)
+	customerMsg, err := client.GenerateCustomerReply(ctx, cache.PromptText, history, msg)
+	if err != nil {
+		return nil, constants.ErrLLMRequestFailed
+	}
+
+	dialogueText := buildRoundDialogueText(msg, customerMsg)
+	query, err := client.RewriteQuery(ctx, dialogueText)
+	if err != nil {
+		return nil, constants.ErrLLMRequestFailed
+	}
+
+	embedding, err := client.Embed(ctx, query)
+	if err != nil {
+		return nil, constants.ErrLLMRequestFailed
+	}
+
+	chromaClient, err := s.getChromaClient()
+	if err != nil {
+		return nil, err
+	}
+	items, err := chromaClient.Query(ctx, embedding)
+	if err != nil {
+		return nil, constants.ErrVectorSearchFailed
+	}
+	etiquetteText := ""
+	if len(items) > 0 {
+		etiquetteText = strings.Join(items, "\n\n")
+	}
+	review, err := client.Critique(ctx, dialogueText, etiquetteText)
+	if err != nil {
+		return nil, constants.ErrLLMRequestFailed
+	}
 
 	angerBefore := cache.CurrentAnger
-	label := "一般积极"
+	label := review.SentimentLabel
 	angerDelta := calcAngerDelta(angerBefore, label)
 	angerAfter := clampAnger(angerBefore + angerDelta)
 
@@ -161,13 +233,13 @@ func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg 
 	round := dto.DialogueRound{
 		Round:             cache.TurnCount,
 		UserMsg:           msg,
-		CustomerMsg:       "",
+		CustomerMsg:       customerMsg,
 		CustomerSentiment: label,
 		AngerBefore:       angerBefore,
 		AngerDelta:        angerDelta,
 		AngerAfter:        angerAfter,
-		ExpertCritique:    "",
-		ReferenceAnswer:   "",
+		ExpertCritique:    review.Critique,
+		ReferenceAnswer:   review.ReferenceAnswer,
 	}
 	cache.DialogueLog = append(cache.DialogueLog, round)
 
@@ -194,8 +266,29 @@ func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg 
 }
 
 func (s *sessionService) TerminateSession(ctx context.Context, sessionID string) error {
-	// 业务逻辑：异常退出，将 Redis 中的该会话 TTL 设置为 5 分钟 (300秒)
-	return s.repo.UpdateSessionTTL(ctx, sessionID, 300*time.Second)
+	cache, err := s.getSessionCache(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+
+	if cache.Status == "ongoing" {
+		cache.Status = "abnormal"
+		cache.LastActiveAt = time.Now().UTC()
+		data, marshalErr := json.Marshal(cache)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if err := s.repo.SetSessionCache(ctx, sessionID, data, 5*time.Minute); err != nil {
+			return err
+		}
+	} else {
+		if err := s.repo.UpdateSessionTTL(ctx, sessionID, 5*time.Minute); err != nil {
+			return err
+		}
+	}
+
+	s.closeStream(sessionID)
+	return nil
 }
 
 func (s *sessionService) GetRecordDetail(ctx context.Context, recordID int64, isAdmin bool) (interface{}, error) {
@@ -225,7 +318,24 @@ func (s *sessionService) ListRecords(ctx context.Context, userID int64, isAdmin 
 		promptID = &req.PromptID
 	}
 
-	records, total, err := s.repo.ListRecords(ctx, filterUserID, req.Username, req.MinScore, req.MaxScore, promptID, req.Page, req.Size)
+	var startTime *time.Time
+	if req.StartTime != "" {
+		parsed, err := time.Parse(time.RFC3339, req.StartTime)
+		if err != nil {
+			return nil, constants.ErrParamInvalid
+		}
+		startTime = &parsed
+	}
+	var endTime *time.Time
+	if req.EndTime != "" {
+		parsed, err := time.Parse(time.RFC3339, req.EndTime)
+		if err != nil {
+			return nil, constants.ErrParamInvalid
+		}
+		endTime = &parsed
+	}
+
+	records, total, err := s.repo.ListRecords(ctx, filterUserID, req.Username, req.MinScore, req.MaxScore, promptID, startTime, endTime, req.Page, req.Size)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +344,7 @@ func (s *sessionService) ListRecords(ctx context.Context, userID int64, isAdmin 
 	for _, record := range records {
 		item := dto.RecordListItemResp{
 			ID:         formatRecordID(record.ID),
-			Score:      float64(record.Score),
+			Score:      record.Score,
 			FinishedAt: record.FinishedAt,
 			Duration:   record.Duration,
 		}
@@ -259,6 +369,79 @@ func (s *sessionService) DeleteRecord(ctx context.Context, recordID int64, userI
 		return constants.ErrNoPermission
 	}
 	return s.repo.DeleteRecord(ctx, recordID)
+}
+
+func (s *sessionService) getLLMClient() (*llm.Client, error) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return nil, constants.ErrLLMConfigMissing
+	}
+	client, err := llm.NewClient(cfg.LLM)
+	if err != nil {
+		return nil, constants.ErrLLMConfigMissing
+	}
+	return client, nil
+}
+
+func (s *sessionService) getChromaClient() (*chroma.Client, error) {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return nil, constants.ErrServerInternal
+	}
+	client, err := chroma.NewClient(cfg.Chroma)
+	if err != nil {
+		return nil, constants.ErrServerInternal
+	}
+	return client, nil
+}
+
+func splitRoleScenePrompt(selected []entity.Prompt) (entity.Prompt, entity.Prompt, error) {
+	var rolePrompt entity.Prompt
+	var scenePrompt entity.Prompt
+	for _, prompt := range selected {
+		if prompt.CategoryID == 6 {
+			rolePrompt = prompt
+			continue
+		}
+		if prompt.CategoryID >= 7 {
+			scenePrompt = prompt
+		}
+	}
+	if rolePrompt.ID == 0 || scenePrompt.ID == 0 {
+		return entity.Prompt{}, entity.Prompt{}, constants.ErrPromptSelectionBad
+	}
+	return rolePrompt, scenePrompt, nil
+}
+
+func buildFullPrompt(basePrompts map[uint]entity.Prompt, rolePrompt entity.Prompt, scenePrompt entity.Prompt) string {
+	parts := []string{
+		basePrompts[0].Content,
+		basePrompts[1].Content,
+		basePrompts[2].Content,
+		rolePrompt.Content,
+		scenePrompt.Content,
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func buildDialogueHistory(logs []dto.DialogueRound) string {
+	if len(logs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(logs)*2)
+	for _, round := range logs {
+		if round.UserMsg != "" {
+			parts = append(parts, "客服: "+round.UserMsg)
+		}
+		if round.CustomerMsg != "" {
+			parts = append(parts, "顾客: "+round.CustomerMsg)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func buildRoundDialogueText(userMsg string, customerMsg string) string {
+	return "客服: " + userMsg + "\n顾客: " + customerMsg
 }
 
 func (s *sessionService) getSessionCache(ctx context.Context, sessionID string) (*dto.SessionCache, error) {
@@ -291,7 +474,7 @@ func (s *sessionService) finishSession(ctx context.Context, cache *dto.SessionCa
 
 	record := &entity.TrainingRecord{
 		UserID:        int64(cache.UserID),
-		Score:         int16(score),
+		Score:         score,
 		UsedPromptIDs: toIntSlice(cache.UsedPromptIDs),
 		DialogueLog:   toDialogueMessages(cache.DialogueLog),
 		FinishedAt:    time.Now().UTC(),
@@ -308,17 +491,34 @@ func (s *sessionService) finishSession(ctx context.Context, cache *dto.SessionCa
 func (s *sessionService) publishStream(sessionID string, resp *dto.ChatResponse) {
 	s.streamMu.Lock()
 	ch, ok := s.streams[sessionID]
-	s.streamMu.Unlock()
 	if !ok {
+		s.streamMu.Unlock()
 		return
 	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return
+	event := dto.SessionSSEEvent{
+		CustomerMsg:  resp.Round.CustomerMsg,
+		CurrentAnger: resp.CurrentAnger,
+		MaxAnger:     resp.MaxAnger,
+		TurnCount:    resp.TurnCount,
+		Status:       resp.Status,
 	}
+
 	select {
-	case ch <- string(data):
+	case ch <- event:
 	default:
+	}
+	s.streamMu.Unlock()
+}
+
+func (s *sessionService) closeStream(sessionID string) {
+	s.streamMu.Lock()
+	ch, ok := s.streams[sessionID]
+	if ok {
+		delete(s.streams, sessionID)
+	}
+	s.streamMu.Unlock()
+	if ok {
+		close(ch)
 	}
 }
 
@@ -376,7 +576,7 @@ func resolveStatus(anger int, turns int) string {
 	if anger >= calc.FailAngerThr {
 		return "failed"
 	}
-	if turns >= 30 {
+	if turns > 100 {
 		return "timeout"
 	}
 	return "ongoing"
@@ -428,7 +628,7 @@ func toAdminRecordDetail(record *entity.TrainingRecord) *dto.AdminRecordDetailRe
 		ID:            formatRecordID(record.ID),
 		UserID:        uint64(record.UserID),
 		Username:      record.User.Username,
-		Score:         float64(record.Score),
+		Score:         record.Score,
 		UsedPromptIDs: toUint64Slice(record.UsedPromptIDs),
 		DialogueLog:   log,
 		FinishedAt:    record.FinishedAt,
@@ -466,7 +666,7 @@ func toUserRecordDetail(ctx context.Context, promptRepo repository.PromptReposit
 
 	return &dto.UserRecordDetailResp{
 		ID:           formatRecordID(record.ID),
-		Score:        float64(record.Score),
+		Score:        record.Score,
 		DialogueLog:  log,
 		FinishedAt:   record.FinishedAt,
 		Duration:     record.Duration,

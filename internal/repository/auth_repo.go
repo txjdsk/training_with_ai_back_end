@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"training_with_ai/internal/model/entity"
 	database "training_with_ai/internal/pkg/DB"
 
@@ -14,7 +15,7 @@ type AuthRepository interface {
 	GetUserByUsername(ctx context.Context, username string) (*entity.User, error)
 	CreateUser(ctx context.Context, user *entity.User) error
 	CheckUserExistsByUsername(ctx context.Context, username string) (bool, error)
-	Logout(ctx context.Context, userID int64, jti string) error
+	Logout(ctx context.Context, jti string, expireHours int) error
 }
 
 // 2. 定义私有结构体实现接口
@@ -53,14 +54,17 @@ func (r *authRepository) CheckUserExistsByUsername(ctx context.Context, username
 		Row().
 		Scan(&exists)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
 		return false, err
 	}
 	return exists, nil
 }
 
-func (r *authRepository) Logout(ctx context.Context, userID int64, jti string) error {
-	// 将 jti 加入 Redis 黑名单，过期时间和 JWT 一致（72小时）
-	err := database.AddToBlacklist(ctx, jti, 72, r.rdb)
+func (r *authRepository) Logout(ctx context.Context, jti string, expireHours int) error {
+	// 将 jti 加入 Redis 黑名单，过期时间和 JWT 一致
+	err := database.AddToBlacklist(ctx, jti, expireHours, r.rdb)
 	if err != nil {
 		return err
 	}

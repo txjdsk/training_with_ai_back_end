@@ -86,8 +86,8 @@ type TrainingRecord struct {
 	// 关联关系: 属于某个用户 (通常查询记录时可能需要带出用户信息)
 	User User `gorm:"foreignKey:UserID" json:"user,omitempty"`
 
-	// Score: SMALLINT -> int16 (或者直接用 int 也可以，GORM 会自动处理)
-	Score int16 `gorm:"type:smallint" json:"score"`
+	// Score: 允许小数 (例如 100.0 / 99.5)
+	Score float64 `gorm:"type:numeric(6,2)" json:"score"`
 
 	// UsedPromptIDs: 存 []int，数据库存 JSONB
 	// gorm:"serializer:json" 是 GORM v2 的特性，自动把 Go 切片转为 DB 的 JSON

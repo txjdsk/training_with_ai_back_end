@@ -1,6 +1,8 @@
 package router
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 
@@ -84,11 +86,11 @@ func SetupRouter(r *gin.Engine, ctrls *RouterControllers, rdb *redis.Client) {
 		sessions := authRequired.Group("/sessions")
 		{
 			sessions.POST("", ctrls.Session.Create)
-			sessions.GET("/:id/stream", ctrls.Session.Stream)        // SSE连接
-			sessions.POST("/:id/chat", ctrls.Session.Chat)           // 发送消息
-			sessions.POST("/:id/terminate", ctrls.Session.Terminate) // 主动停止
-			sessions.GET("/:id", ctrls.Session.GetDetail)            // 会话详情
-			sessions.GET("", ctrls.Session.GetList)                  // 历史列表
+			sessions.GET("/:id/stream", ctrls.Session.Stream)                                                           // SSE连接
+			sessions.POST("/:id/chat", middleware.RateLimitByTokenSession(rdb, 10, 10*time.Second), ctrls.Session.Chat) // 发送消息
+			sessions.POST("/:id/terminate", ctrls.Session.Terminate)                                                    // 主动停止
+			sessions.GET("/:id", ctrls.Session.GetDetail)                                                               // 会话详情
+			sessions.GET("", ctrls.Session.GetList)                                                                     // 历史列表
 
 			// 软删除记录 (Controller层需二次校验：只能删自己的，或Admin可删所有人)
 			sessions.DELETE("/:id", ctrls.Session.Delete)
