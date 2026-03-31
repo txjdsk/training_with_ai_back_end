@@ -61,6 +61,8 @@ type LLMConfig struct {
 	EmbeddingModel string  `mapstructure:"embedding_model"`
 	Temperature    float64 `mapstructure:"temperature"`
 	MaxTokens      int     `mapstructure:"max_tokens"`
+	RewriteMax     int     `mapstructure:"rewrite_max_tokens"`
+	CritiqueMax    int     `mapstructure:"critique_max_tokens"`
 	TimeoutSeconds int     `mapstructure:"timeout_seconds"`
 	APIKey         string
 }
@@ -129,7 +131,16 @@ func LoadConfig() (*Config, error) {
 		cfg.App.Port = "8080" // 兜底默认端口
 	}
 	if cfg.Log.LogPath == "" {
+		cfg.Log.LogPath = yamlViper.GetString("log.path")
+	}
+	if cfg.Log.LogLevel == "" {
+		cfg.Log.LogLevel = yamlViper.GetString("log.level")
+	}
+	if cfg.Log.LogPath == "" {
 		cfg.Log.LogPath = "./logs/app.log" // 兜底默认日志路径
+	}
+	if cfg.Log.LogLevel == "" {
+		cfg.Log.LogLevel = "info" // 兜底默认日志级别
 	}
 
 	return &cfg, nil
