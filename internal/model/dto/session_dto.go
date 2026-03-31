@@ -6,12 +6,12 @@ import "time"
 // 1. 核心共享结构 (Redis缓存 与 最终给前端展示用的核心数据)
 // ============================================================================
 
-// DialogueRound 单轮对话日志结构 (完美匹配你的双智能体和怒气值流转逻辑)
+// DialogueRound 单轮对话日志结构
 type DialogueRound struct {
 	Round             int    `json:"round"`              // 当前轮次
 	UserMsg           string `json:"user_msg"`           // 真实用户发送的回复
 	CustomerMsg       string `json:"customer_msg"`       // 模拟顾客(LLM 1)的回复文本
-	CustomerSentiment string `json:"customer_sentiment"` // 模拟顾客情绪评价 (积极/一般积极/一般负面/负面)
+	CustomerSentiment string `json:"customer_sentiment"` // 模拟顾客情绪评价 (积极/一般积极/一般消极/消极)
 	AngerBefore       int    `json:"anger_before"`       // 本轮回复前的怒气值
 	AngerDelta        int    `json:"anger_delta"`        // 本轮怒气值增减量 (+15 或 -10 等)
 	AngerAfter        int    `json:"anger_after"`        // 本轮结算后的怒气值
@@ -81,13 +81,17 @@ type ChatResponse struct {
 	TurnCount    int           `json:"turn_count"`
 }
 
-// SessionSSEEvent SSE实时推送载荷：仅返回A模型回复与最新怒气状态
+// SessionSSEEvent SSE实时推送载荷
 type SessionSSEEvent struct {
-	CustomerMsg  string `json:"customer_msg"`
-	CurrentAnger int    `json:"current_anger"`
-	MaxAnger     int    `json:"max_anger"`
-	TurnCount    int    `json:"turn_count"`
-	Status       string `json:"status"`
+	Event           string `json:"event,omitempty"`
+	Round           int    `json:"round,omitempty"`
+	CustomerMsg     string `json:"customer_msg"`
+	CurrentAnger    int    `json:"current_anger"`
+	MaxAnger        int    `json:"max_anger"`
+	TurnCount       int    `json:"turn_count"`
+	Status          string `json:"status"`
+	ExpertCritique  string `json:"expert_critique,omitempty"`
+	ReferenceAnswer string `json:"reference_answer,omitempty"`
 }
 
 // EvaluateResp 训练结束后的结算/打分响应

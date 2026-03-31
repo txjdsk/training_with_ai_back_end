@@ -184,41 +184,25 @@ func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg 
 	}
 
 	history := buildDialogueHistory(cache.DialogueLog)
-	customerMsg, err := client.GenerateCustomerReply(ctx, cache.PromptText, history, msg)
+	customerMsgRaw, err := client.GenerateCustomerReply(ctx, cache.PromptText, history, msg)
 	if err != nil {
 		return nil, constants.ErrLLMRequestFailed
 	}
 
-	dialogueText := buildRoundDialogueText(msg, customerMsg)
-	query, err := client.RewriteQuery(ctx, dialogueText)
-	if err != nil {
-		return nil, constants.ErrLLMRequestFailed
+	customerMsg, label := extractEmotionTag(customerMsgRaw)
+	label = normalizeEmotionLabel(label)
+	if label == "" {
+		label = "一般积极"
+		logger.Debugw("emotion tag not found, fallback used",
+			"session_id", sessionID,
+			"round", cache.TurnCount+1,
+		)
 	}
-
-	embedding, err := client.Embed(ctx, query)
-	if err != nil {
-		return nil, constants.ErrLLMRequestFailed
-	}
-
-	chromaClient, err := s.getChromaClient()
-	if err != nil {
-		return nil, err
-	}
-	items, err := chromaClient.Query(ctx, embedding)
-	if err != nil {
-		return nil, constants.ErrVectorSearchFailed
-	}
-	etiquetteText := ""
-	if len(items) > 0 {
-		etiquetteText = strings.Join(items, "\n\n")
-	}
-	review, err := client.Critique(ctx, dialogueText, etiquetteText)
-	if err != nil {
-		return nil, constants.ErrLLMRequestFailed
+	if customerMsg == "" {
+		customerMsg = strings.TrimSpace(customerMsgRaw)
 	}
 
 	angerBefore := cache.CurrentAnger
-	label := review.SentimentLabel
 	angerDelta := calcAngerDelta(angerBefore, label)
 	angerAfter := clampAnger(angerBefore + angerDelta)
 
@@ -238,8 +222,8 @@ func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg 
 		AngerBefore:       angerBefore,
 		AngerDelta:        angerDelta,
 		AngerAfter:        angerAfter,
-		ExpertCritique:    review.Critique,
-		ReferenceAnswer:   review.ReferenceAnswer,
+		ExpertCritique:    "",
+		ReferenceAnswer:   "",
 	}
 	cache.DialogueLog = append(cache.DialogueLog, round)
 
@@ -262,6 +246,10 @@ func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg 
 	}
 
 	s.publishStream(sessionID, resp)
+	if cache.Status == "ongoing" {
+		dialogueText := buildRoundDialogueText(msg, customerMsg)
+		go s.runAsyncReview(sessionID, round.Round, dialogueText)
+	}
 	return resp, nil
 }
 
@@ -496,11 +484,38 @@ func (s *sessionService) publishStream(sessionID string, resp *dto.ChatResponse)
 		return
 	}
 	event := dto.SessionSSEEvent{
+		Event:        "reply",
+		Round:        resp.Round.Round,
 		CustomerMsg:  resp.Round.CustomerMsg,
 		CurrentAnger: resp.CurrentAnger,
 		MaxAnger:     resp.MaxAnger,
 		TurnCount:    resp.TurnCount,
 		Status:       resp.Status,
+	}
+
+	select {
+	case ch <- event:
+	default:
+	}
+	s.streamMu.Unlock()
+}
+
+func (s *sessionService) publishReview(sessionID string, round int, review string, answer string, cache *dto.SessionCache) {
+	s.streamMu.Lock()
+	ch, ok := s.streams[sessionID]
+	if !ok {
+		s.streamMu.Unlock()
+		return
+	}
+	event := dto.SessionSSEEvent{
+		Event:           "review",
+		Round:           round,
+		ExpertCritique:  review,
+		ReferenceAnswer: answer,
+		CurrentAnger:    cache.CurrentAnger,
+		MaxAnger:        cache.MaxAnger,
+		TurnCount:       cache.TurnCount,
+		Status:          cache.Status,
 	}
 
 	select {
@@ -540,13 +555,123 @@ func calcAngerDelta(current int, label string) int {
 		return int(-5 * posMult)
 	case "一般积极":
 		return int(-2 * posMult)
-	case "一般负面":
+	case "一般消极":
 		return int(2 * negMult)
-	case "负面":
+	case "消极":
 		return int(5 * negMult)
 	default:
 		return 0
 	}
+}
+
+func extractEmotionTag(text string) (string, string) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "", ""
+	}
+	lower := strings.ToLower(trimmed)
+	idx := strings.LastIndex(lower, "[emotion:")
+	if idx == -1 {
+		return trimmed, ""
+	}
+	if !strings.HasSuffix(lower, "]") {
+		return trimmed, ""
+	}
+	label := strings.TrimSpace(trimmed[idx+len("[Emotion:") : len(trimmed)-1])
+	content := strings.TrimSpace(trimmed[:idx])
+	return content, label
+}
+
+func normalizeEmotionLabel(label string) string {
+	switch strings.TrimSpace(label) {
+	case "积极":
+		return "积极"
+	case "一般积极":
+		return "一般积极"
+	case "一般消极":
+		return "一般消极"
+	case "消极":
+		return "消极"
+	case "一般负面":
+		return "一般消极"
+	case "负面":
+		return "消极"
+	default:
+		return ""
+	}
+}
+
+func (s *sessionService) runAsyncReview(sessionID string, round int, dialogueText string) {
+	const maxAttempts = 2
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Second)
+		err := s.evaluateRound(ctx, sessionID, round, dialogueText)
+		cancel()
+		if err == nil {
+			return
+		}
+		logger.Warn("async critique failed",
+			zap.String("session_id", sessionID),
+			zap.Int("round", round),
+			zap.Int("attempt", attempt),
+			zap.Error(err),
+		)
+	}
+}
+
+func (s *sessionService) evaluateRound(ctx context.Context, sessionID string, round int, dialogueText string) error {
+	cache, err := s.getSessionCache(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if round <= 0 || round > len(cache.DialogueLog) {
+		return fmt.Errorf("round not found")
+	}
+
+	client, err := s.getLLMClient()
+	if err != nil {
+		return err
+	}
+
+	query, err := client.RewriteQuery(ctx, dialogueText)
+	if err != nil {
+		return err
+	}
+	embedding, err := client.Embed(ctx, query)
+	if err != nil {
+		return err
+	}
+
+	chromaClient, err := s.getChromaClient()
+	if err != nil {
+		return err
+	}
+	items, err := chromaClient.Query(ctx, embedding)
+	if err != nil {
+		return err
+	}
+	etiquetteText := ""
+	if len(items) > 0 {
+		etiquetteText = strings.Join(items, "\n\n")
+	}
+	review, err := client.Critique(ctx, dialogueText, etiquetteText)
+	if err != nil {
+		return err
+	}
+
+	idx := round - 1
+	updated := cache.DialogueLog[idx]
+	updated.ExpertCritique = review.Critique
+	updated.ReferenceAnswer = review.ReferenceAnswer
+	cache.DialogueLog[idx] = updated
+	cache.LastActiveAt = time.Now().UTC()
+
+	if err := s.saveSessionCache(ctx, sessionID, cache); err != nil {
+		return err
+	}
+
+	s.publishReview(sessionID, round, review.Critique, review.ReferenceAnswer, cache)
+	return nil
 }
 
 func sensitivityMultiplier(anger int) (float64, float64) {

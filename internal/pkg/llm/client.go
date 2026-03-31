@@ -202,9 +202,10 @@ func (c *Client) RewriteQuery(ctx context.Context, dialogue string) (string, err
 
 func (c *Client) Critique(ctx context.Context, dialogue string, etiquetteText string) (*CritiqueResult, error) {
 	systemPrompt := strings.Join([]string{
-		"按礼仪规范点评该客服应答，输出点评语、参考回答，并给出情感分析标签。",
-		"仅输出 JSON，字段包括: critique, reference_answer, sentiment_label。",
-		"sentiment_label 只能是: 积极, 一般积极, 一般负面, 负面。",
+		"请根据提供的【对话内容】和【礼仪规范】，客观点评该客服应答，输出点评语、参考回答",
+		`严禁使用 JSON 格式！请严格使用以下标签格式输出：
+		<review>此处填写你的详细点评</review>
+		<answer>此处填写优秀回复参考答案</answer>`,
 	}, "\n")
 
 	userPrompt := "对话内容:\n" + dialogue + "\n\n礼仪规范:\n" + etiquetteText
@@ -237,10 +238,15 @@ func (c *Client) Critique(ctx context.Context, dialogue string, etiquetteText st
 
 	content := strings.TrimSpace(resp.Choices[0].Message.Content)
 	content = trimCodeFence(content)
-
-	var result CritiqueResult
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return nil, err
+	reviewText, okReview := extractTaggedText(content, "review")
+	answerText, okAnswer := extractTaggedText(content, "answer")
+	if !okReview || !okAnswer {
+		return nil, fmt.Errorf("critique response missing review/answer tags")
+	}
+	result := CritiqueResult{
+		Critique:        reviewText,
+		ReferenceAnswer: answerText,
+		SentimentLabel:  "",
 	}
 	return &result, nil
 }
@@ -264,9 +270,9 @@ func (c *Client) GenerateCustomerReply(ctx context.Context, systemPrompt string,
 				Content: userContent,
 			},
 		},
-		Temperature:    c.temperature,
-		MaxTokens:      c.maxTokens,
-		EnableThinking: boolPtr(false),
+		Temperature: c.temperature,
+		MaxTokens:   c.maxTokens,
+		//EnableThinking: boolPtr(false),
 	}
 	logChatRequest("customer_reply", request)
 	resp, err := c.createChatCompletion(ctx, request)
@@ -326,6 +332,22 @@ func trimCodeFence(content string) string {
 		content = strings.TrimSuffix(content, "```")
 	}
 	return strings.TrimSpace(content)
+}
+
+func extractTaggedText(content string, tag string) (string, bool) {
+	openTag := "<" + tag + ">"
+	closeTag := "</" + tag + ">"
+	start := strings.Index(content, openTag)
+	if start == -1 {
+		return "", false
+	}
+	start += len(openTag)
+	end := strings.Index(content[start:], closeTag)
+	if end == -1 {
+		return "", false
+	}
+	text := content[start : start+end]
+	return strings.TrimSpace(text), true
 }
 
 func logLLMError(action string, err error) {
