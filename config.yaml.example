@@ -23,6 +23,8 @@ llm:
   embedding_model: "your_embedding_model"
   temperature: 0.2
   max_tokens: 800
+  rewrite_max_tokens: 300
+  critique_max_tokens: 700
   timeout_seconds: 30
 chroma:
   base_url: "your_local_chroma"

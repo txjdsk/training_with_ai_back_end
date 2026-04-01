@@ -145,11 +145,11 @@ func (c *Client) OptimizePrompt(ctx context.Context, original string, requiremen
 		Messages: []chatMessage{
 			{
 				Role:    "system",
-				Content: "You rewrite prompts. Keep intent, improve clarity and usefulness. Output only the rewritten prompt.",
+				Content: "你负责重写提示词。按照要求以最小修改原则修改提示词。仅输出重写后的提示词即可。",
 			},
 			{
 				Role:    "user",
-				Content: "Original prompt:\n" + original + "\n\nRequirement:\n" + requirement,
+				Content: "原始提示词：\n" + original + "\n\n要求：\n" + requirement,
 			},
 		},
 		Temperature:    c.temperature,
