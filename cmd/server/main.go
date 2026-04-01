@@ -27,7 +27,6 @@ func main() {
 
 	//初始化 Gin 引擎
 	r := gin.New()
-	//TODO:到时候添加对生产环境的日志级别控制，别输出太多日志了
 	r.Use(middleware.RequestLogger())
 
 	// 初始化数据库和 Redis

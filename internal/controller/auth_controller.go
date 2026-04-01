@@ -84,7 +84,6 @@ func (c *AuthController) Logout(ctx *gin.Context) {
 	}
 
 	// 2. 调用 Service 进行登出逻辑处理
-	//TODO:完善登出逻辑，例如：清除 Redis 中的 Token，或在数据库中记录用户登出时间等
 	err := c.svc.Logout(ctx.Request.Context(), jti.(string))
 	if err != nil {
 		response.Fail(ctx, err)
