@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 	"training_with_ai/internal/model/entity"
 
@@ -60,6 +61,9 @@ func (r *userRepository) CheckUsernameExists(ctx context.Context, username strin
 		Row().
 		Scan(&exists)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
 		return false, err
 	}
 	return exists, nil
@@ -74,6 +78,9 @@ func (r *userRepository) CheckUsernameExistsExcludeID(ctx context.Context, usern
 		Row().
 		Scan(&exists)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
 		return false, err
 	}
 	return exists, nil
