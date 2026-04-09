@@ -90,6 +90,7 @@ type apiErrorResponse struct {
 
 type CritiqueResult struct {
 	Critique        string `json:"critique"`
+	PolishReply     string `json:"polish_reply"`
 	ReferenceAnswer string `json:"reference_answer"`
 	SentimentLabel  string `json:"sentiment_label"`
 }
@@ -202,10 +203,15 @@ func (c *Client) RewriteQuery(ctx context.Context, dialogue string) (string, err
 
 func (c *Client) Critique(ctx context.Context, dialogue string, etiquetteText string) (*CritiqueResult, error) {
 	systemPrompt := strings.Join([]string{
-		"请根据提供的【对话内容】和【礼仪规范】，客观点评该客服应答，输出点评语、参考回答",
-		`严禁使用 JSON 格式！请严格使用以下标签格式输出：
-		<review>此处填写你的详细点评</review>
-		<answer>此处填写优秀回复参考答案</answer>`,
+		"请根据提供的【对话内容】和【礼仪规范】，执行以下任务\n*注：“斧正”特指对客服当前应答的修改润色。*" +
+			`1. 点评：客观点评客服当前应答的优缺点。
+2. 斧正：将客服当前的应答修改得更好。
+3. 建议：提供客服接下来可以说的一句优秀回复作为参考。
+
+请严格使用以下格式输出，严禁使用JSON：
+<review>这里是点评内容</review>
+<polish>这里是斧正后的应答</polish>
+<answer>这里是接下来的参考回复</answer>`,
 	}, "\n")
 
 	userPrompt := "对话内容:\n" + dialogue + "\n\n礼仪规范:\n" + etiquetteText
@@ -239,12 +245,14 @@ func (c *Client) Critique(ctx context.Context, dialogue string, etiquetteText st
 	content := strings.TrimSpace(resp.Choices[0].Message.Content)
 	content = trimCodeFence(content)
 	reviewText, okReview := extractTaggedText(content, "review")
+	polishText, okPolish := extractTaggedText(content, "polish")
 	answerText, okAnswer := extractTaggedText(content, "answer")
-	if !okReview || !okAnswer {
-		return nil, fmt.Errorf("critique response missing review/answer tags")
+	if !okReview || !okPolish || !okAnswer {
+		return nil, fmt.Errorf("critique response missing review/polish/answer tags")
 	}
 	result := CritiqueResult{
 		Critique:        reviewText,
+		PolishReply:     polishText,
 		ReferenceAnswer: answerText,
 		SentimentLabel:  "",
 	}

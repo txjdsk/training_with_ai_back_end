@@ -18,6 +18,7 @@ type DialogueMessage struct {
 	AngerDelta        int    `json:"anger_delta"`
 	AngerAfter        int    `json:"anger_after"`
 	ExpertCritique    string `json:"expert_critique"`
+	PolishReply       string `json:"polish_reply"`
 	ReferenceAnswer   string `json:"reference_answer"`
 }
 

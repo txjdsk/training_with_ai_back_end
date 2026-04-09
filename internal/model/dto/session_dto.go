@@ -16,6 +16,7 @@ type DialogueRound struct {
 	AngerDelta        int    `json:"anger_delta"`        // 本轮怒气值增减量 (+15 或 -10 等)
 	AngerAfter        int    `json:"anger_after"`        // 本轮结算后的怒气值
 	ExpertCritique    string `json:"expert_critique"`    // 客服专家(LLM 2)对本轮的点评
+	PolishReply       string `json:"polish_reply"`       // 客服专家(LLM 2)斧正后的应答
 	ReferenceAnswer   string `json:"reference_answer"`   // 客服专家(LLM 2)给出的参考回答
 }
 
@@ -25,6 +26,7 @@ type SessionCache struct {
 	UserID        uint64          `json:"user_id"`
 	UsedPromptIDs []uint64        `json:"used_prompt_ids"`
 	PromptText    string          `json:"prompt_text"`
+	Preview       string          `json:"preview"`
 	Difficulty    string          `json:"difficulty"`
 	Status        string          `json:"status"`
 	CurrentAnger  int             `json:"current_anger"`
@@ -85,12 +87,14 @@ type ChatResponse struct {
 type SessionSSEEvent struct {
 	Event           string `json:"event,omitempty"`
 	Round           int    `json:"round,omitempty"`
+	Preview         string `json:"preview,omitempty"`
 	CustomerMsg     string `json:"customer_msg"`
 	CurrentAnger    int    `json:"current_anger"`
 	MaxAnger        int    `json:"max_anger"`
 	TurnCount       int    `json:"turn_count"`
 	Status          string `json:"status"`
 	ExpertCritique  string `json:"expert_critique,omitempty"`
+	PolishReply     string `json:"polish_reply,omitempty"`
 	ReferenceAnswer string `json:"reference_answer,omitempty"`
 }
 

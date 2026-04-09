@@ -101,6 +101,7 @@ func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *
 	}
 
 	fullPrompt := buildFullPrompt(basePrompts, rolePrompt, scenePrompt)
+	preview := strings.Join([]string{rolePrompt.Content, scenePrompt.Content}, "\n")
 	usedPromptIDs := []uint64{
 		uint64(basePrompts[0].ID),
 		uint64(basePrompts[1].ID),
@@ -116,6 +117,7 @@ func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *
 		UserID:        userID,
 		UsedPromptIDs: usedPromptIDs,
 		PromptText:    fullPrompt,
+		Preview:       preview,
 		Difficulty:    req.Difficulty,
 		Status:        "ongoing",
 		CurrentAnger:  initAnger,
@@ -138,7 +140,8 @@ func (s *sessionService) CreateSession(ctx context.Context, userID uint64, req *
 }
 
 func (s *sessionService) OpenStream(ctx context.Context, sessionID string) (<-chan dto.SessionSSEEvent, error) {
-	if _, err := s.getSessionCache(ctx, sessionID); err != nil {
+	cache, err := s.getSessionCache(ctx, sessionID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -149,6 +152,12 @@ func (s *sessionService) OpenStream(ctx context.Context, sessionID string) (<-ch
 	}
 	ch := make(chan dto.SessionSSEEvent, 8)
 	s.streams[sessionID] = ch
+	if cache.Preview != "" {
+		select {
+		case ch <- dto.SessionSSEEvent{Event: "preview", Preview: cache.Preview}:
+		default:
+		}
+	}
 	return ch, nil
 }
 
@@ -223,6 +232,7 @@ func (s *sessionService) SendMessage(ctx context.Context, sessionID string, msg 
 		AngerDelta:        angerDelta,
 		AngerAfter:        angerAfter,
 		ExpertCritique:    "",
+		PolishReply:       "",
 		ReferenceAnswer:   "",
 	}
 	cache.DialogueLog = append(cache.DialogueLog, round)
@@ -500,7 +510,7 @@ func (s *sessionService) publishStream(sessionID string, resp *dto.ChatResponse)
 	s.streamMu.Unlock()
 }
 
-func (s *sessionService) publishReview(sessionID string, round int, review string, answer string, cache *dto.SessionCache) {
+func (s *sessionService) publishReview(sessionID string, round int, review string, polish string, answer string, cache *dto.SessionCache) {
 	s.streamMu.Lock()
 	ch, ok := s.streams[sessionID]
 	if !ok {
@@ -511,6 +521,7 @@ func (s *sessionService) publishReview(sessionID string, round int, review strin
 		Event:           "review",
 		Round:           round,
 		ExpertCritique:  review,
+		PolishReply:     polish,
 		ReferenceAnswer: answer,
 		CurrentAnger:    cache.CurrentAnger,
 		MaxAnger:        cache.MaxAnger,
@@ -662,6 +673,7 @@ func (s *sessionService) evaluateRound(ctx context.Context, sessionID string, ro
 	idx := round - 1
 	updated := cache.DialogueLog[idx]
 	updated.ExpertCritique = review.Critique
+	updated.PolishReply = review.PolishReply
 	updated.ReferenceAnswer = review.ReferenceAnswer
 	cache.DialogueLog[idx] = updated
 	cache.LastActiveAt = time.Now().UTC()
@@ -670,7 +682,7 @@ func (s *sessionService) evaluateRound(ctx context.Context, sessionID string, ro
 		return err
 	}
 
-	s.publishReview(sessionID, round, review.Critique, review.ReferenceAnswer, cache)
+	s.publishReview(sessionID, round, review.Critique, review.PolishReply, review.ReferenceAnswer, cache)
 	return nil
 }
 
@@ -727,6 +739,7 @@ func toDialogueMessages(rounds []dto.DialogueRound) []entity.DialogueMessage {
 			AngerDelta:        round.AngerDelta,
 			AngerAfter:        round.AngerAfter,
 			ExpertCritique:    round.ExpertCritique,
+			PolishReply:       round.PolishReply,
 			ReferenceAnswer:   round.ReferenceAnswer,
 		})
 	}
@@ -745,6 +758,7 @@ func toAdminRecordDetail(record *entity.TrainingRecord) *dto.AdminRecordDetailRe
 			AngerDelta:        round.AngerDelta,
 			AngerAfter:        round.AngerAfter,
 			ExpertCritique:    round.ExpertCritique,
+			PolishReply:       round.PolishReply,
 			ReferenceAnswer:   round.ReferenceAnswer,
 		})
 	}
@@ -773,6 +787,7 @@ func toUserRecordDetail(ctx context.Context, promptRepo repository.PromptReposit
 			AngerDelta:        round.AngerDelta,
 			AngerAfter:        round.AngerAfter,
 			ExpertCritique:    round.ExpertCritique,
+			PolishReply:       round.PolishReply,
 			ReferenceAnswer:   round.ReferenceAnswer,
 		})
 	}
