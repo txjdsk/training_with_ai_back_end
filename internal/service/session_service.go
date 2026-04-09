@@ -299,7 +299,7 @@ func (s *sessionService) GetRecordDetail(ctx context.Context, recordID int64, is
 	}
 
 	if isAdmin {
-		return toAdminRecordDetail(record), nil
+		return toAdminRecordDetail(ctx, s.promptRepo, record)
 	}
 
 	return toUserRecordDetail(ctx, s.promptRepo, record)
@@ -746,7 +746,7 @@ func toDialogueMessages(rounds []dto.DialogueRound) []entity.DialogueMessage {
 	return result
 }
 
-func toAdminRecordDetail(record *entity.TrainingRecord) *dto.AdminRecordDetailResp {
+func toAdminRecordDetail(ctx context.Context, promptRepo repository.PromptRepository, record *entity.TrainingRecord) (*dto.AdminRecordDetailResp, error) {
 	log := make([]dto.DialogueRound, 0, len(record.DialogueLog))
 	for _, round := range record.DialogueLog {
 		log = append(log, dto.DialogueRound{
@@ -763,16 +763,43 @@ func toAdminRecordDetail(record *entity.TrainingRecord) *dto.AdminRecordDetailRe
 		})
 	}
 
+	ids := toUint64Slice(record.UsedPromptIDs)
+	prompts, err := promptRepo.GetPromptsByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	promptByID := make(map[uint64]entity.Prompt, len(prompts))
+	for _, prompt := range prompts {
+		promptByID[uint64(prompt.ID)] = prompt
+	}
+	notes := make([]string, 0, len(prompts))
+	previewParts := make([]string, 0, 2)
+	for _, id := range ids {
+		prompt, ok := promptByID[id]
+		if !ok {
+			continue
+		}
+		if prompt.Note != nil {
+			notes = append(notes, *prompt.Note)
+		}
+		if prompt.CategoryID >= 6 && prompt.Content != "" {
+			previewParts = append(previewParts, prompt.Content)
+		}
+	}
+	preview := strings.Join(previewParts, "\n")
+
 	return &dto.AdminRecordDetailResp{
 		ID:            formatRecordID(record.ID),
 		UserID:        uint64(record.UserID),
 		Username:      record.User.Username,
 		Score:         record.Score,
 		UsedPromptIDs: toUint64Slice(record.UsedPromptIDs),
+		PromptsNotes:  notes,
+		Preview:       preview,
 		DialogueLog:   log,
 		FinishedAt:    record.FinishedAt,
 		Duration:      record.Duration,
-	}
+	}, nil
 }
 
 func toUserRecordDetail(ctx context.Context, promptRepo repository.PromptRepository, record *entity.TrainingRecord) (*dto.UserRecordDetailResp, error) {
@@ -797,20 +824,35 @@ func toUserRecordDetail(ctx context.Context, promptRepo repository.PromptReposit
 	if err != nil {
 		return nil, err
 	}
-	notes := make([]string, 0, len(prompts))
+	promptByID := make(map[uint64]entity.Prompt, len(prompts))
 	for _, prompt := range prompts {
+		promptByID[uint64(prompt.ID)] = prompt
+	}
+	notes := make([]string, 0, len(prompts))
+	previewParts := make([]string, 0, 2)
+	for _, id := range ids {
+		prompt, ok := promptByID[id]
+		if !ok {
+			continue
+		}
 		if prompt.Note != nil {
 			notes = append(notes, *prompt.Note)
 		}
+		if prompt.CategoryID >= 6 && prompt.Content != "" {
+			previewParts = append(previewParts, prompt.Content)
+		}
 	}
+	preview := strings.Join(previewParts, "\n")
 
 	return &dto.UserRecordDetailResp{
-		ID:           formatRecordID(record.ID),
-		Score:        record.Score,
-		DialogueLog:  log,
-		FinishedAt:   record.FinishedAt,
-		Duration:     record.Duration,
-		PromptsNotes: notes,
+		ID:            formatRecordID(record.ID),
+		Score:         record.Score,
+		UsedPromptIDs: ids,
+		Preview:       preview,
+		DialogueLog:   log,
+		FinishedAt:    record.FinishedAt,
+		Duration:      record.Duration,
+		PromptsNotes:  notes,
 	}, nil
 }
 

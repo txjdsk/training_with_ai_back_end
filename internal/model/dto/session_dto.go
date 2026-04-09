@@ -116,18 +116,22 @@ type AdminRecordDetailResp struct {
 	Username      string          `json:"username"` // 联表查出的用户名，方便管理员看
 	Score         float64         `json:"score"`
 	UsedPromptIDs []uint64        `json:"used_prompt_ids"` // 原生暴露提示词 ID
-	DialogueLog   []DialogueRound `json:"dialogue_log"`    // 对话全量日志
+	PromptsNotes  []string        `json:"prompts_notes"`
+	Preview       string          `json:"preview"`
+	DialogueLog   []DialogueRound `json:"dialogue_log"` // 对话全量日志
 	FinishedAt    time.Time       `json:"finished_at"`
 	Duration      int             `json:"duration"`
 }
 
 // UserRecordDetailResp 【普通用户专属】记录详情视图 (数据脱敏)
 type UserRecordDetailResp struct {
-	ID          string          `json:"id"`
-	Score       float64         `json:"score"`
-	DialogueLog []DialogueRound `json:"dialogue_log"`
-	FinishedAt  time.Time       `json:"finished_at"`
-	Duration    int             `json:"duration"`
+	ID            string          `json:"id"`
+	Score         float64         `json:"score"`
+	UsedPromptIDs []uint64        `json:"used_prompt_ids"`
+	Preview       string          `json:"preview"`
+	DialogueLog   []DialogueRound `json:"dialogue_log"`
+	FinishedAt    time.Time       `json:"finished_at"`
+	Duration      int             `json:"duration"`
 
 	// 【重点隔离逻辑】:
 	// 普通用户不能看具体的 PromptID，也不能看 Prompt 核心的 Content 指令

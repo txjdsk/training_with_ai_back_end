@@ -61,7 +61,7 @@ func (s *promptService) GetPromptDetail(ctx context.Context, id int64, isAdmin b
 		return nil, err
 	}
 
-	if isAdmin {
+	if isAdmin || prompt.CategoryID >= 6 {
 		return dto.AdminPromptResp{
 			ID:         uint64(prompt.ID),
 			CategoryID: prompt.CategoryID,
