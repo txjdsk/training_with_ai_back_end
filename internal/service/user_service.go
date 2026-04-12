@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 	"training_with_ai/internal/model/dto"
 	"training_with_ai/internal/model/entity"
 	"training_with_ai/internal/pkg/auth"
 	"training_with_ai/internal/pkg/constants"
+	"training_with_ai/internal/pkg/timeutil"
 	"training_with_ai/internal/repository"
 
 	"gorm.io/gorm"
@@ -95,21 +95,13 @@ func (s *userService) UpdateProfile(ctx context.Context, userID int64, req dto.U
 }
 
 func (s *userService) AdminList(ctx context.Context, req dto.AdminUserFilterReq) (*dto.PageResp, error) {
-	var startTime *time.Time
-	if strings.TrimSpace(req.StartTime) != "" {
-		parsed, err := time.Parse(time.RFC3339, req.StartTime)
-		if err != nil {
-			return nil, constants.ErrParamInvalid
-		}
-		startTime = &parsed
+	startTime, err := timeutil.ParseQueryTime(req.StartTime, false)
+	if err != nil {
+		return nil, constants.ErrParamInvalid
 	}
-	var endTime *time.Time
-	if strings.TrimSpace(req.EndTime) != "" {
-		parsed, err := time.Parse(time.RFC3339, req.EndTime)
-		if err != nil {
-			return nil, constants.ErrParamInvalid
-		}
-		endTime = &parsed
+	endTime, err := timeutil.ParseQueryTime(req.EndTime, true)
+	if err != nil {
+		return nil, constants.ErrParamInvalid
 	}
 
 	users, total, err := s.repo.List(ctx, req.Username, req.Role, startTime, endTime, req.Page, req.Size)

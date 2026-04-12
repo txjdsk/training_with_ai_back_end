@@ -41,8 +41,8 @@ type AdminUserFilterReq struct {
 	PageReq
 	Username  string `form:"username"`   // 模糊搜索
 	Role      string `form:"role"`       // 角色筛选
-	StartTime string `form:"start_time"` // 创建时间起始 (RFC3339)
-	EndTime   string `form:"end_time"`   // 创建时间结束 (RFC3339)
+	StartTime string `form:"start_time"` // 创建时间起始 (RFC3339 或 YYYY-MM-DD)
+	EndTime   string `form:"end_time"`   // 创建时间结束 (RFC3339 或 YYYY-MM-DD)
 }
 
 // AdminCreateUserReq 管理员新增用户

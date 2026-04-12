@@ -16,6 +16,7 @@ import (
 	"training_with_ai/internal/pkg/constants"
 	"training_with_ai/internal/pkg/llm"
 	"training_with_ai/internal/pkg/logger"
+	"training_with_ai/internal/pkg/timeutil"
 	"training_with_ai/internal/repository"
 
 	config "training_with_ai/configs"
@@ -316,21 +317,13 @@ func (s *sessionService) ListRecords(ctx context.Context, userID int64, isAdmin 
 		promptID = &req.PromptID
 	}
 
-	var startTime *time.Time
-	if req.StartTime != "" {
-		parsed, err := time.Parse(time.RFC3339, req.StartTime)
-		if err != nil {
-			return nil, constants.ErrParamInvalid
-		}
-		startTime = &parsed
+	startTime, err := timeutil.ParseQueryTime(req.StartTime, false)
+	if err != nil {
+		return nil, constants.ErrParamInvalid
 	}
-	var endTime *time.Time
-	if req.EndTime != "" {
-		parsed, err := time.Parse(time.RFC3339, req.EndTime)
-		if err != nil {
-			return nil, constants.ErrParamInvalid
-		}
-		endTime = &parsed
+	endTime, err := timeutil.ParseQueryTime(req.EndTime, true)
+	if err != nil {
+		return nil, constants.ErrParamInvalid
 	}
 
 	records, total, err := s.repo.ListRecords(ctx, filterUserID, req.Username, req.MinScore, req.MaxScore, promptID, startTime, endTime, req.Page, req.Size)
